@@ -4,6 +4,7 @@ import { resolvePlayUrl } from './lib/resolvePlay.js';
 import { fetchStream } from './lib/fetcher.js';
 import { handleStream } from './lib/streamProxy.js';
 import { listDir, getPlayUrl } from './lib/webdav.js';
+import { guard } from './lib/gate.js';
 
 export default {
   async fetch(request, env) {
@@ -11,6 +12,13 @@ export default {
 
     const url = new URL(request.url);
     const p = url.pathname;
+
+    // 站点访问口令门禁（见 lib/gate.js）：
+    //   - 仅在 Cloudflare 后台设置了机密变量 SITE_PASS 时生效，未设置则完全跳过；
+    //   - 必须放在静态资源分发之前，且 wrangler.toml 里需开启 [assets] run_worker_first = true，
+    //     否则首页与静态文件会绕过 Worker 直接返回，门禁不会生效。
+    const blocked = await guard(request, env, url);
+    if (blocked) return blocked;
 
     // 静态资源：非 /api 请求交给 Cloudflare 静态资产处理
     if (!p.startsWith('/api/')) {
