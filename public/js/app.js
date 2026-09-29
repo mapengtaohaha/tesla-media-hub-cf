@@ -4,6 +4,10 @@
 
 const app = document.getElementById('app');
 
+// 底部快捷栏要用的「上一站」记录：浏览 / 详情 / 播放 三个位置各记一份，
+// 没有记录时快捷栏上对应的按钮会置灰（而不是点了没反应）
+const NAV = { siteKey: '', detail: null, play: null };
+
 // ---------- 工具 ----------
 let toastTimer = null;
 function showToast(msg) {
@@ -67,6 +71,7 @@ async function render() {
   } catch (e) {
     app.innerHTML = `<div class="empty">加载失败：${esc(e.message)}<br><br><button class="btn primary" onclick="go('/')">返回首页</button></div>`;
   }
+  dockSync();          // 路由变化后刷新底部快捷栏的高亮 / 置灰状态
 }
 window.addEventListener('hashchange', render);
 
@@ -485,6 +490,7 @@ async function resumeHistory(i) {
       const data = await api('/api/dav/play?path=' + encodeURIComponent(it.davPath));
       if (!data.url) return showToast('未获取到播放地址');
       hisPush(Object.assign({}, it, { ts: Date.now() }));
+      NAV.play = { kind: 'dav', path: it.davPath, name: it.name };
       playWebdav(data.url, it.name);
     } catch (e) { showToast(e.message); }
     return;
@@ -535,6 +541,11 @@ window.resumeHistory = resumeHistory;
 window.onTmhPlay = function (info) {
   try {
     if (!info || info.isDav || !info.siteKey || !info.vodId) return;
+    // 同步给快捷栏：点「播放」回到的是最近看的那一集，而不是最初点进去的那一集
+    if (NAV.play && NAV.play.kind === 'vod' && String(NAV.play.ctx.vodId) === String(info.vodId)) {
+      NAV.play.ctx.startEp = info.epIdx || 0;
+      NAV.play.ctx.flagIdx = info.flagIdx || 0;
+    }
     hisPush({
       kind: 'vod',
       key: `vod:${info.siteKey}:${info.vodId}`,
@@ -549,6 +560,20 @@ window.onTmhPlay = function (info) {
     });
   } catch (_) { /* 记录失败不影响播放 */ }
 };
+
+/**
+ * 记录最近一次点播的上下文，供快捷栏的「播放」一键回到。
+ * 这里包一层 window.openPlayer 而不是改每个调用点，是最省事也最不容易漏的做法。
+ * 网盘（directPlay）不在这里记：它的地址带签名会过期，必须重新解析，见 NAV.play 的 dav 分支。
+ */
+(function wrapPlayerEntry() {
+  if (typeof window.openPlayer !== 'function') return;
+  const orig = window.openPlayer;
+  window.openPlayer = function (ctx) {
+    if (ctx && !ctx.directPlay) NAV.play = { kind: 'vod', ctx: ctx };
+    return orig.apply(this, arguments);
+  };
+})();
 
 /** 根据源类型进入对应浏览页：applecms → 站点浏览；iptv 已禁用 */
 function enterSource(sourceId, type) {
@@ -643,6 +668,7 @@ const browseState = { siteKey: '', classes: [], cat: '', page: 1, pagecount: 1, 
 
 async function renderBrowse(siteKey) {
   browseState.siteKey = siteKey;
+  NAV.siteKey = siteKey;          // ← 快捷栏的「浏览」按钮据此回到这个源
   browseState.cat = '';
   browseState.page = 1;
   browseState.mode = 'home';
@@ -792,6 +818,8 @@ const detailState = { siteKey: '', vodId: '', data: null, plays: [], flagIdx: 0 
 async function renderDetail(siteKey, vodId) {
   detailState.siteKey = siteKey;
   detailState.vodId = vodId;
+  NAV.siteKey = siteKey;                                   // 详情页也属于某个源，顺手记下来
+  NAV.detail = { siteKey: siteKey, vodId: vodId };         // ← 快捷栏的「详情」按钮
   setTitle('详情', '');
   app.innerHTML = '<div class="loading">加载中…</div>';
   const data = await api(`/api/sites/${encodeURIComponent(siteKey)}/detail?id=${encodeURIComponent(vodId)}`);
@@ -903,11 +931,166 @@ function playWebdavByIndex(idx) {
       const data = await api('/api/dav/play?path=' + encodeURIComponent(it.path));
       if (!data.url) return showToast('未获取到播放地址');
       hisPush({ kind: 'dav', key: 'dav:' + it.path, davPath: it.path, name: it.name, vodName: it.name, epName: '网盘', ts: Date.now() });
+      NAV.play = { kind: 'dav', path: it.path, name: it.name };
       playWebdav(data.url, it.name);
     } catch (e) { showToast(e.message); }
   })();
 }
 window.playWebdavByIndex = playWebdavByIndex;
 
+// ============================================================
+// 底部快捷栏：首页 / 浏览 / 详情 / 播放 / 主题
+//   · 首页、浏览、详情、播放 —— 当前所在页高亮；没有可回的上一站就置灰
+//   · 主题 —— 三态循环：跟随系统 → 深色 → 浅色，选择记在本地
+//   · 可一键收起，收起后右下角只留一个小圆钮（状态也记在本地）
+//   · 播放层 z-index 100 在它之上，所以播放时不会挡住画面
+// ============================================================
+// ======== [DOCK-CORE-START] 纯 UI 与主题部分（界面预览页复用同一段，保证预览=线上）========
+const THEME_KEY = 'tmh_theme';       // 'dark' | 'light' | ''（空 = 跟随系统）
+const DOCK_KEY = 'tmh_dock_min';     // '1' = 已收起
+
+const DOCK_ICONS = {
+  home: '<path d="M4 11.4 12 4.2l8 7.2V19a1 1 0 0 1-1 1h-4.1v-5.3H9.1V20H5a1 1 0 0 1-1-1z"/>',
+  browse: '<rect x="4.2" y="4.2" width="6.4" height="6.4" rx="1.5"/><rect x="13.4" y="4.2" width="6.4" height="6.4" rx="1.5"/><rect x="4.2" y="13.4" width="6.4" height="6.4" rx="1.5"/><rect x="13.4" y="13.4" width="6.4" height="6.4" rx="1.5"/>',
+  detail: '<rect x="4.2" y="4.6" width="15.6" height="14.8" rx="2.2"/><path d="M8.6 4.6v14.8M15.4 4.6v14.8M4.2 9.4h4.4M4.2 14.6h4.4M15.4 9.4h4.4M15.4 14.6h4.4"/>',
+  play: '<circle cx="12" cy="12" r="8.4"/><path d="M10.2 8.6 15.9 12l-5.7 3.4z"/>',
+  fold: '<path d="M6 9.6 12 15.6l6-6"/>',
+  expand: '<path d="M6 14.4 12 8.4l6 6"/>',
+  themeAuto: '<circle cx="12" cy="12" r="8.2"/><path d="M12 3.8a8.2 8.2 0 0 0 0 16.4z" fill="currentColor" stroke="none"/>',
+  themeDark: '<path d="M20.2 13.6A8.4 8.4 0 0 1 10.4 3.8a8.4 8.4 0 1 0 9.8 9.8z"/>',
+  themeLight: '<circle cx="12" cy="12" r="4.1"/><path d="M12 2.6v2.3M12 19.1v2.3M2.6 12h2.3M19.1 12h2.3M5.5 5.5l1.6 1.6M16.9 16.9l1.6 1.6M18.5 5.5l-1.6 1.6M7.1 16.9l-1.6 1.6"/>',
+};
+const THEME_LABEL = { '': '跟随系统', dark: '深色', light: '浅色' };
+const THEME_NEXT = { '': 'dark', dark: 'light', light: '' };
+const THEME_ICON = { '': 'themeAuto', dark: 'themeDark', light: 'themeLight' };
+
+function dockIcon(name) {
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"'
+    + ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (DOCK_ICONS[name] || '') + '</svg>';
+}
+
+/**
+ * 生成快捷栏 HTML。纯函数（只看传入的参数），预览页复用同一份。
+ * cur: 当前所在页 home / browse / detail；st: { browse, detail, play, theme }
+ */
+function dockHtml(cur, st) {
+  const b = (act, icon, label, off) =>
+    `<button class="dock-btn${cur === act ? ' on' : ''}" data-act="${act}"${off ? ' disabled' : ''}>`
+    + dockIcon(icon) + `<span>${esc(label)}</span></button>`;
+  return b('home', 'home', '首页', false)
+    + b('browse', 'browse', '浏览', !st.browse)
+    + b('detail', 'detail', '详情', !st.detail)
+    + b('play', 'play', '播放', !st.play)
+    + '<span class="dock-sep"></span>'
+    + `<button class="dock-btn" data-act="theme">${dockIcon(THEME_ICON[st.theme || ''])}<span>${esc(THEME_LABEL[st.theme || ''])}</span></button>`
+    + `<button class="dock-btn dock-fold" data-act="fold" aria-label="收起快捷栏">${dockIcon('fold')}</button>`;
+}
+
+function themeGet() { try { return localStorage.getItem(THEME_KEY) || ''; } catch (_) { return ''; } }
+function themeSet(v) { try { v ? localStorage.setItem(THEME_KEY, v) : localStorage.removeItem(THEME_KEY); } catch (_) { /* 无痕模式忽略 */ } }
+/** 应用主题到 <html>：空值 = 跟随系统（清掉类，让 CSS 的 prefers-color-scheme 生效） */
+function themeApply(v) {
+  const r = document.documentElement;
+  r.classList.remove('theme-dark', 'theme-light');
+  if (v === 'dark') r.classList.add('theme-dark');
+  else if (v === 'light') r.classList.add('theme-light');
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) {
+    const dark = v === 'dark' || (v !== 'light' && !window.matchMedia('(prefers-color-scheme: light)').matches);
+    meta.setAttribute('content', dark ? '#0a0b0e' : '#f4f6f9');
+  }
+}
+
+function dockMinGet() { try { return localStorage.getItem(DOCK_KEY) === '1'; } catch (_) { return false; } }
+function dockMinSet(v) { try { v ? localStorage.setItem(DOCK_KEY, '1') : localStorage.removeItem(DOCK_KEY); } catch (_) { /* ignore */ } }
+function dockFold(v) { document.body.classList.toggle('dock-min', !!v); dockMinSet(!!v); }
+// ======== [DOCK-CORE-END] ========
+
+/** 点快捷栏上的一项 */
+function dockAct(act) {
+  if (act === 'fold') { dockFold(true); return; }
+  if (act === 'theme') {
+    const v = THEME_NEXT[themeGet()];
+    themeSet(v);
+    themeApply(v);
+    dockSync();
+    showToast('外观：' + THEME_LABEL[v]);
+    return;
+  }
+  if (act === 'home') { go('/'); return; }
+  if (act === 'browse') { if (NAV.siteKey) go('/browse/' + encodeURIComponent(NAV.siteKey)); return; }
+  if (act === 'detail') {
+    if (NAV.detail) go(`/detail/${encodeURIComponent(NAV.detail.siteKey)}/${encodeURIComponent(NAV.detail.vodId)}`);
+    return;
+  }
+  if (act === 'play') dockResumePlay();
+}
+
+/** 「播放」：回到最近一次观看。AppleCMS 直接复用上下文；网盘要重新换一次带签名的地址 */
+function dockResumePlay() {
+  const p = NAV.play;
+  if (!p) return;
+  if (p.kind === 'vod') { openPlayer(p.ctx); return; }
+  showToast('正在打开网盘文件…');
+  api('/api/dav/play?path=' + encodeURIComponent(p.path))
+    .then((d) => { if (!d.url) return showToast('未获取到播放地址'); playWebdav(d.url, p.name); })
+    .catch((e) => showToast(e.message));
+}
+
+/** 刷新快捷栏的高亮 / 置灰状态（每次路由变化后调用） */
+function dockSync() {
+  const el = document.getElementById('dock');
+  if (!el) return;
+  const segs = parseHash().path.split('/').filter(Boolean);
+  const first = segs[0] || '';
+  let cur = '';
+  if (!first) cur = 'home';
+  else if (first === 'browse' || first === 'webdav' || first === 'iptv') cur = 'browse';
+  else if (first === 'detail') cur = 'detail';
+  el.innerHTML = dockHtml(cur, {
+    browse: !!NAV.siteKey,
+    detail: !!(NAV.detail && NAV.detail.vodId),
+    play: !!NAV.play,
+    theme: themeGet(),
+  });
+}
+
+function dockBuild() {
+  if (document.getElementById('dock')) return;
+  const el = document.createElement('div');
+  el.id = 'dock';
+  el.className = 'dock';
+  const mini = document.createElement('button');
+  mini.id = 'dock-mini';
+  mini.className = 'dock-mini';
+  mini.type = 'button';
+  mini.setAttribute('aria-label', '展开快捷栏');
+  mini.innerHTML = dockIcon('expand');
+  document.body.appendChild(el);
+  document.body.appendChild(mini);
+
+  document.body.classList.toggle('dock-min', dockMinGet());
+  themeApply(themeGet());          // 进页面就把上次选的主题应用上
+
+  el.addEventListener('click', (e) => {
+    const b = e.target.closest('.dock-btn');
+    if (!b || b.disabled) return;
+    dockAct(b.dataset.act);
+  });
+  mini.addEventListener('click', () => dockFold(false));
+
+  // 播放层显示/隐藏时同步底栏。
+  // 注意这里必须同时做两件事：切 body 的 is-playing（让底栏退场）、以及刷新底栏状态。
+  // 后者不能省：开关播放器不会触发路由变化，不在这里补一次，「播放」按钮就会一直是置灰的。
+  const layer = document.getElementById('player-layer');
+  if (layer && window.MutationObserver) {
+    new MutationObserver(() => {
+      document.body.classList.toggle('is-playing', !layer.classList.contains('hidden'));
+      dockSync();
+    }).observe(layer, { attributes: true, attributeFilter: ['class'] });
+  }
+}
+
 // ---------- 启动 ----------
+dockBuild();
 render();

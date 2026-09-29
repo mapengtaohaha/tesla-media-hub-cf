@@ -20,6 +20,7 @@
   --surface-2:    #1a1d24;   /* 次级块 / 输入框 */
   --surface-3:    #23272f;   /* 按钮 / hover */
   --bar:          #0e1014;   /* 顶栏 */
+  --dock-bg:      rgba(18, 20, 26, .84);   /* 底部快捷栏 */
 
   /* 描边：用半透明白，比写死的灰蓝更耐看 */
   --line:         rgba(255, 255, 255, .07);
@@ -60,7 +61,7 @@
 
 /* ---------- 设计令牌：浅色（系统为浅色时自动启用）---------- */
 @media (prefers-color-scheme: light) {
-  :root {
+  html:not(.theme-dark) {
     color-scheme: light;
 
     --bg:           #f4f6f9;
@@ -68,6 +69,7 @@
     --surface-2:    #eef1f6;
     --surface-3:    #e2e7ef;
     --bar:          #ffffff;
+    --dock-bg:      rgba(255, 255, 255, .88);
 
     --line:         rgba(16, 24, 40, .09);
     --line-strong:  rgba(16, 24, 40, .18);
@@ -95,6 +97,48 @@
     --shadow-2: 0 10px 28px -8px rgba(16, 24, 40, .20);
   }
 }
+
+/* ---------- 主题强制覆盖：底部快捷栏的「深色 / 浅色」按钮 ----------
+   三态规则（顺序不能动）：
+     · html 上没有任何类      → 跟随系统（上面的 media 生效）
+     · html.theme-dark        → 强制深色（media 里被 :not(.theme-dark) 排除）
+     · html.theme-light       → 强制浅色（与 media 规则同特异性，靠位置在后压过它）---------- */
+html.theme-light {
+    color-scheme: light;
+
+    --bg:           #f4f6f9;
+    --surface-1:    #ffffff;
+    --surface-2:    #eef1f6;
+    --surface-3:    #e2e7ef;
+    --bar:          #ffffff;
+    --dock-bg:      rgba(255, 255, 255, .88);
+
+    --line:         rgba(16, 24, 40, .09);
+    --line-strong:  rgba(16, 24, 40, .18);
+
+    --text:         #14181f;
+    --text-2:       #4e5766;
+    --text-3:       #7c8593;
+
+    --accent:       #1f6feb;   /* 浅色底上压深一档，保证对比度 */
+    --accent-ink:   #ffffff;
+    --accent-soft:  rgba(31, 111, 235, .10);
+    --accent-line:  rgba(31, 111, 235, .32);
+    --accent-2:     #b45309;
+    --accent-2-soft: rgba(180, 83, 9, .10);
+    --accent-2-line: rgba(180, 83, 9, .30);
+    --danger:       #d1242f;
+    --danger-soft:  rgba(209, 36, 47, .10);
+
+    --poster-from:  #e8ecf2;
+    --poster-to:    #dde3ec;
+
+    --scroll-thumb: rgba(16, 24, 40, .18);
+
+    --shadow-1: 0 1px 2px rgba(16, 24, 40, .06);
+    --shadow-2: 0 10px 28px -8px rgba(16, 24, 40, .20);
+  }
+
 
 /* ---------- 基础 ---------- */
 * {
@@ -189,7 +233,7 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 18px 16px 32px;
+  padding: 18px 16px 78px;
 }
 
 .page-title {
@@ -882,7 +926,7 @@ body.is-home .home-hint { margin-bottom: auto; }
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 84px;
+  bottom: 98px;
   z-index: 200;
   max-width: 80vw;
   padding: 12px 22px;
@@ -1027,7 +1071,7 @@ body.is-home .home-hint { margin-bottom: auto; }
 
 /* ---------- 宽屏（车机横屏 / 平板）---------- */
 @media (min-width: 1100px) {
-  #app { padding: 22px 26px 40px; }
+  #app { padding: 22px 26px 86px; }
   .card-grid { grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 20px; }
   .card-grid:has(> .source-card),
   .home-grid { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px; }
@@ -1413,4 +1457,114 @@ body.is-home .home-hint { margin-bottom: auto; }
   .car-arrow { width: 42px; height: 42px; margin-top: -21px; font-size: 22px; }
   .his-row { gap: 9px; }
   .his-name { font-size: 12px; }
+}
+
+/* ============================================================
+   底部快捷栏：首页 / 浏览 / 详情 / 播放 / 主题
+   线上真实功能，不是预览工具：
+     · 当前所在页高亮；没有可回的上一站就置灰（而不是点了没反应）
+     · 主题按钮三态循环：跟随系统 → 深色 → 浅色
+     · 可一键收起，收起后右下角只留一个小圆钮（状态记在本地）
+     · 播放层 z-index 100 在它之上，所以播放时不会挡住画面
+   ============================================================ */
+.dock {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--dock-bg);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  backdrop-filter: blur(18px) saturate(1.6);
+  box-shadow: var(--shadow-2);
+  animation: dockIn .44s var(--ease) both;
+}
+@keyframes dockIn {
+  from { opacity: 0; transform: translate(-50%, 18px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+body.is-playing > .dock,
+body.dock-min > .dock { display: none; }
+
+.dock-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background .16s var(--ease), color .16s var(--ease), transform .12s var(--ease);
+}
+.dock-btn svg { width: 19px; height: 19px; flex: none; display: block; }
+.dock-btn:active { transform: scale(.955); }
+@media (hover: hover) {
+  .dock-btn:not([disabled]):hover { background: var(--surface-3); color: var(--text); }
+}
+.dock-btn.on {
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: 0 6px 16px -6px var(--accent-line);
+}
+.dock-btn[disabled] { opacity: .3; cursor: default; }
+.dock-sep { width: 1px; align-self: stretch; margin: 7px 5px; background: var(--line-strong); }
+.dock-fold { padding: 0 11px; }
+
+/* 收起后右下角的小圆钮 */
+.dock-mini {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 60;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: var(--dock-bg);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  backdrop-filter: blur(18px) saturate(1.6);
+  color: var(--text-2);
+  cursor: pointer;
+  box-shadow: var(--shadow-2);
+  transition: color .16s var(--ease), transform .12s var(--ease);
+}
+.dock-mini svg { width: 20px; height: 20px; }
+.dock-mini:active { transform: scale(.94); }
+body.dock-min .dock-mini { display: flex; }
+body.dock-min.is-playing .dock-mini { display: none; }
+/* 收起后内容不再需要为底栏留空 */
+body.dock-min #app { padding-bottom: 34px; }
+
+/* 窄屏（手机）：只留图标，避免一排挤成两行 */
+@media (max-width: 560px) {
+  .dock { gap: 0; padding: 4px; }
+  .dock-btn { padding: 0 12px; }
+  .dock-btn span { display: none; }
+  .dock-fold { padding: 0 10px; }
+}
+/* 大屏（车机横屏）：整体放大一点，手指/触控更好点 */
+@media (min-width: 1100px) {
+  .dock { bottom: 14px; padding: 6px; }
+  .dock-btn { min-height: 44px; padding: 0 18px; font-size: 14.5px; }
+  .dock-btn svg { width: 20px; height: 20px; }
+  body.dock-min #app { padding-bottom: 40px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dock { animation: none; }
 }
