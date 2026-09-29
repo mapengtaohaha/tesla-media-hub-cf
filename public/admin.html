@@ -15,7 +15,7 @@
       <input id="login-user" placeholder="管理员账号">
       <input id="login-pass" type="password" placeholder="密码">
       <button class="btn primary block" onclick="doLogin()">登 录</button>
-      <div class="tip" style="text-align:center">默认账号 admin / admin123（可通过环境变量修改）</div>
+      <div class="tip" style="text-align:center">仅限管理员访问</div>
       <a href="/" class="back-link">← 返回首页</a>
     </div>
   </div>
@@ -46,9 +46,8 @@
       <div class="section-title">说明</div>
       <div class="detail-desc">
         源由管理员统一维护，普通用户首页仅可选择源与站点观看。<br><br>
-        支持两种源（添加时下拉选择，二者同级）：<br>
-        · <b>AppleCMS 影视源</b>：站点采集接口地址，形如 <code>https://域名/api.php/provide/vod/</code>，用于点播电影/电视剧。<br>
-        · <b>IPTV 直播源</b>：M3U 播放列表地址，服务端解析频道并经 ffmpeg 转码推流，车机直接观看电视直播。
+        仅支持 <b>AppleCMS 影视源</b>：站点采集接口地址，形如 <code>https://域名/api.php/provide/vod/</code>，用于点播电影/电视剧。<br>
+        注意：Cloudflare 版已移除 IPTV / ffmpeg，<b>不支持 IPTV 直播源</b>，请不要添加。
       </div>
     </main>
   </div>
