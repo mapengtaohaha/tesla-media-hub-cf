@@ -2,8 +2,7 @@ name = "tesla-media-hub-cf"
 main = "src/index.js"
 compatibility_date = "2025-05-01"
 
-# Cloudflare 账号 ID（来自 CF 后台右上角「账户 ID」，或 `npx wrangler whoami`）
-
+# Cloudflare 账号 ID：Git 集成部署时由后台所选账号决定，这里留空即可
 
 # 静态资源（前端 public/）由 Cloudflare 静态资产直接托管，无需 /api 的请求会回退到这里
 [assets]
@@ -11,18 +10,21 @@ directory = "./public"
 binding = "ASSETS"
 # hash 路由，未匹配文件回退到 index.html（无害，主要用于直接深链）
 not_found_handling = "single-page-application"
+# 【重要】让 Worker 先于静态资源执行。
+# 默认情况下 Cloudflare 是先匹配静态资源，匹配上就直接返回、Worker 不执行；
+# 不开启这一项，src/lib/gate.js 的口令门禁只能拦到 /api 和 /admin，
+# 首页与所有静态文件依然是敞开的，等于没锁。
+run_worker_first = true
 
 # 持久化：源配置 / 管理员账号 存到 KV（替代原 Docker 的 data/ 磁盘卷）
-# 绑定名 TMH_KV 已固定；只需把下面的 id 换成你在 CF 后台 KV 命名空间详情页看到的「ID」
-# （Workers & Pages → KV → 点你的命名空间 → 详情页的 ID，形如 32 位十六进制）
 [[kv_namespaces]]
 binding = "TMH_KV"
 id = "a52c52508b7f4f1b8bba18dc9e842159"
 
 [vars]
-# 首次部署的默认管理员账号（部署后仍可在管理后台网页修改，修改后写入 KV 覆盖此处）
-ADMIN_USER = "admin"
-ADMIN_PASS = "admin123"
+# 管理员账号请勿写在这里（会进公开的 Git 仓库）。
+# 首次部署时由代码内置默认值初始化并写入 KV，之后一律以 KV 为准；
+# 登录后台 /admin 后可在页面里修改账号密码，改动会写入 KV。
 
 # WebDAV 网盘配置：此为「fallback」。优先使用 /admin 后台页面写入 KV 的配置（无需改此文件、无需重新部署）。
 # 若两者都未设置，「WebDAV 网盘」入口会提示未配置。
@@ -32,6 +34,7 @@ WEBDAV_BASE = ""
 WEBDAV_USER = ""
 WEBDAV_PASS = ""
 
-# 重要：登录态签名密钥请通过 Secrets 设置（不写进仓库）：
-#   npx wrangler secret put TMH_SECRET
-# 不设置时 worker 会在每次冷启动随机生成一个密钥，登录在重启后失效（仅适合快速试跑）。
+# 重要：以下敏感值请通过 Cloudflare 后台「变量和机密」添加（类型选「机密」），不要写进本文件：
+#   TMH_SECRET   登录态 HMAC 签名密钥（不设置会回退到源码里公开的内置值，等于后门）
+#   SITE_PASS    整站访问口令（设置后才会启用手令门禁，见 src/lib/gate.js）
+# 机密类型不会被部署流程覆盖或删除，可以放心在后台维护。
