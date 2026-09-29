@@ -275,6 +275,27 @@ async function switchEp(i) {
   await playCurrent();
 }
 
+// 播放事件回调：供 app.js 记录「观看记录」。
+// 每次真正开始播一集时触发（含手动切集、自动续播下一集）；未挂载回调时什么都不做。
+function notifyPlay(epIdx) {
+  try {
+    if (typeof window.onTmhPlay !== 'function') return;
+    const ctx = playCtx;
+    if (!ctx) return;
+    const ep = ((ctx.plays[ctx.flagIdx] || {}).episodes || [])[epIdx] || {};
+    window.onTmhPlay({
+      siteKey: ctx.siteKey || '',
+      vodId: ctx.vodId || '',
+      vodName: ctx.vodName || '',
+      poster: ctx.poster || '',
+      flagIdx: ctx.flagIdx || 0,
+      epIdx: epIdx,
+      epName: ep.name || '',
+      isDav: !!ctx.directPlay,
+    });
+  } catch (_) { /* 记录失败绝不能影响播放 */ }
+}
+
 async function playCurrent(resume) {
   const ctx = playCtx;
   const flag = ctx.plays[ctx.flagIdx] || {};
@@ -283,6 +304,7 @@ async function playCurrent(resume) {
     showToast('该线路暂无选集');
     return;
   }
+  notifyPlay(ctx.curEp);
   const title = `${ctx.vodName} · ${ep.name || '第' + (ctx.curEp + 1) + '集'}`;
   document.getElementById('player-title').textContent = title;
 

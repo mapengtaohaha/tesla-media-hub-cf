@@ -1,10 +1,13 @@
 /* ============================================================
    车载影视 · 界面样式
-   纯 CSS 改造：不改动任何 JS 与 HTML 结构，替换本文件即可生效。
 
    主题：跟随系统自动切换深浅色（prefers-color-scheme）。
          全部颜色走下面的设计令牌，浅色主题只覆盖令牌值即可整体换肤。
          播放器内部始终维持深色，避免观影时被白底干扰。
+
+   结构约定：本文件配合 app.js / player.js 使用。
+             · 首页数据源海报轮播的 DOM 由 app.js 生成（.carousel 一节）
+             · 观看记录条由 app.js 生成（.his-wrap 一节）
    ============================================================ */
 
 /* ---------- 设计令牌：深色（默认）---------- */
@@ -327,6 +330,13 @@ body { display: flex; flex-direction: column; overflow: hidden; }
    ============================================================ */
 /* 用「直接子元素」选择器，避免影响到嵌在其它容器里的顶栏 */
 body.is-home > #topbar { display: none; }
+
+/* 首页整屏居中：车机横屏很高，内容不居中的话底下会空一大片。
+   用 auto 外边距而不是 justify-content: center —— 内容超高时 auto 会自动归零，
+   不会像 center 那样把顶部内容顶出屏幕、滚不到。 */
+body.is-home > #app { display: flex; flex-direction: column; }
+body.is-home .carousel { margin-top: auto; }
+body.is-home .home-hint { margin-bottom: auto; }
 
 .home-hero {
   padding: 8px 2px 22px;
@@ -1023,7 +1033,7 @@ body.is-home > #topbar { display: none; }
   .home-grid { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px; }
   .page-title { font-size: 22px; }
   #page-title { font-size: 19px; }
-  .home-hero { padding: 10px 2px 26px; }
+  .home-hero { padding: 8px 2px 16px; }
   .home-hero-title { font-size: 30px; }
   .source-card { min-height: 160px; padding: 20px 20px 18px 24px; }
   .source-card .card-title { font-size: 19px; }
@@ -1031,4 +1041,374 @@ body.is-home > #topbar { display: none; }
   .detail-info .d-title { font-size: 24px; }
   .ep-grid { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 12px; }
   .vod-card .v-name { font-size: 14.5px; }
+}
+
+/* ============================================================
+   首页：数据源海报轮播
+   DOM：.carousel > .car-viewport > .car-track > .car-slide × 3N
+   app.js 把同一个列表渲染三份，滑到边缘时无动画跳回中间一份，
+   从而实现左右无限循环（截图里看不出接缝）。
+   海报底色/文案固定用深色+白字，因此在深浅两套主题下表现一致。
+   ============================================================ */
+.carousel {
+  /* 卡片宽度同时受屏幕高、宽约束：车机横屏很高 → 卡片自动变大填满；
+     手机竖屏很窄 → 自动收小。夹在 220~372 之间，避免极端尺寸下过大或过小。 */
+  --car-w: clamp(220px, min(32vh, 62vw), 372px);
+  --car-gap: 16px;
+  position: relative;
+  padding: 2px 0 0;
+}
+
+.car-viewport {
+  overflow: hidden;
+  padding: 8px 0 6px;
+  touch-action: pan-y;   /* 竖向留给页面滚动，横向留给滑动切卡 */
+}
+
+.car-track {
+  display: flex;
+  gap: var(--car-gap);
+  will-change: transform;
+  transition: transform .52s var(--ease);
+}
+
+/* 非当前卡片缩小，形成"轮播"的纵深。
+   压暗不用 opacity：半透明会和页面背景混色，浅色主题下海报会发灰发白。
+   改成卡片内部叠一层暗色蒙版，深浅两套主题下表现完全一致。 */
+.car-slide {
+  flex: none;
+  width: var(--car-w);
+  transform: scale(.85);
+  transition: transform .52s var(--ease);
+}
+.car-slide.is-near { transform: scale(.9); }
+.car-slide.is-active { transform: scale(1); }
+
+.car-card {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-2);
+  cursor: pointer;
+  transition: border-color .3s var(--ease), box-shadow .3s var(--ease);
+}
+.car-slide.is-active .car-card {
+  border-color: var(--accent-line);
+  box-shadow: 0 22px 44px -14px rgba(0, 0, 0, .7);
+}
+
+/* 侧边卡片的压暗层（盖住海报与文案，居中不动的那张完全透明） */
+.car-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border-radius: inherit;
+  background: rgba(6, 8, 12, .46);
+  opacity: 1;
+  pointer-events: none;
+  transition: opacity .52s var(--ease);
+}
+.car-slide.is-near .car-card::after { opacity: .22; }
+.car-slide.is-active .car-card::after { opacity: 0; }
+
+/* 叠加顺序：渐变底 → 首字水印 → 真实封面图 → 压暗层 → 文案 */
+.car-art {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* 没有放图片时的兜底封面：用 CSS 分层画出「天空 + 日/月 + 地平线」，
+   和 public/covers/ 里那套默认封面是同一套视觉语言，不会显得像一团糊的渐变。
+   注意：ellipse 允许百分比半径、circle 不允许，所以日月都画成 ellipse（3:4 下近似圆）。 */
+.car-art-1 {
+  background-image:
+    radial-gradient(ellipse 17% 13% at 70% 25%, rgba(128,178,255,.42), rgba(128,178,255,0) 100%),
+    radial-gradient(ellipse 6.4% 4.8% at 70% 25%, #e6f0ff 0 86%, rgba(230,240,255,0) 100%),
+    linear-gradient(to bottom, rgba(6,12,30,0) 0 53%, rgba(8,18,44,.84) 54%, rgba(4,9,24,.96) 100%),
+    linear-gradient(180deg, #0a1636 0%, #1d3f82 100%);
+}
+.car-art-2 {
+  background-image:
+    radial-gradient(ellipse 22% 17% at 50% 44%, rgba(255,120,178,.50), rgba(255,120,178,0) 100%),
+    radial-gradient(ellipse 8.6% 6.4% at 50% 44%, #ffe0ee 0 86%, rgba(255,224,238,0) 100%),
+    linear-gradient(to bottom, rgba(14,4,12,0) 0 60%, rgba(22,6,20,.72) 61%, rgba(10,3,9,.92) 100%),
+    linear-gradient(180deg, #22081e 0%, #96305e 100%);
+}
+.car-art-3 {
+  background-image:
+    radial-gradient(ellipse 15% 11% at 64% 30%, rgba(86,230,196,.40), rgba(86,230,196,0) 100%),
+    radial-gradient(ellipse 5.2% 3.9% at 64% 30%, #dcfff6 0 86%, rgba(220,255,246,0) 100%),
+    linear-gradient(to bottom, rgba(2,14,14,0) 0 61%, rgba(6,32,30,.86) 62%, rgba(3,16,15,.96) 100%),
+    linear-gradient(180deg, #06181c 0%, #105c52 100%);
+}
+.car-art-4 {
+  background-image:
+    radial-gradient(ellipse 26% 20% at 68% 52%, rgba(255,172,84,.52), rgba(255,172,84,0) 100%),
+    radial-gradient(ellipse 11% 8.4% at 68% 52%, #ffe3b8 0 86%, rgba(255,227,184,0) 100%),
+    linear-gradient(to bottom, rgba(12,6,2,0) 0 61%, rgba(22,11,4,.88) 62%, rgba(8,4,1,.97) 100%),
+    linear-gradient(180deg, #1a0c04 0%, #964a12 100%);
+}
+.car-art-5 {
+  background-image:
+    radial-gradient(ellipse 16% 12% at 28% 22%, rgba(168,148,255,.42), rgba(168,148,255,0) 100%),
+    radial-gradient(ellipse 5.6% 4.2% at 28% 22%, #ece8ff 0 86%, rgba(236,232,255,0) 100%),
+    linear-gradient(to bottom, rgba(6,4,16,0) 0 59%, rgba(14,10,36,.84) 60%, rgba(6,4,18,.96) 100%),
+    linear-gradient(180deg, #0e0a2a 0%, #402e8c 100%);
+}
+.car-art-6 {
+  background-image:
+    radial-gradient(ellipse 21% 16% at 44% 56%, rgba(255,124,102,.50), rgba(255,124,102,0) 100%),
+    radial-gradient(ellipse 8.8% 6.6% at 44% 56%, #ffdcd2 0 86%, rgba(255,220,210,0) 100%),
+    linear-gradient(to bottom, rgba(10,3,3,0) 0 61%, rgba(26,8,8,.86) 62%, rgba(10,3,3,.96) 100%),
+    linear-gradient(180deg, #1e0606 0%, #9c2824 100%);
+}
+
+/* 没有封面图时显示的源名首字，有图时会被图盖住 */
+.car-glyph {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  font-size: 74px;
+  font-weight: 800;
+  letter-spacing: -.04em;
+  color: rgba(255, 255, 255, .18);
+  user-select: none;
+  pointer-events: none;
+}
+
+.car-img {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform .5s var(--ease);
+}
+
+.car-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: linear-gradient(to top, rgba(6, 8, 12, .92) 0%, rgba(6, 8, 12, .70) 28%, rgba(6, 8, 12, .16) 56%, rgba(6, 8, 12, 0) 78%);
+}
+
+.car-body {
+  position: absolute;
+  z-index: 4;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 16px 18px;
+  color: #fff;
+}
+/* 类型标签压在封面上：用「深底 + 白字」而不是毛玻璃浅底 ——
+   毛玻璃会把背后的亮部（月亮、落日）透上来，白字压在浅底上会看不清。 */
+.car-body .badge {
+  align-self: flex-start;
+  background: rgba(8, 10, 14, .52);
+  border-color: rgba(255, 255, 255, .18);
+  color: #fff;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.car-name {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.22;
+  letter-spacing: -.02em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* 「进入」胶囊只在当前卡片上浮出，鼠标/手指点中间那张就是它 */
+.car-cta {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  min-height: 40px;
+  padding: 0 18px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 14.5px;
+  font-weight: 700;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity .32s var(--ease), transform .32s var(--ease);
+}
+.car-slide.is-active .car-cta { opacity: 1; transform: none; }
+.car-cta-arrow { line-height: 1; transition: transform .24s var(--ease); }
+
+@media (hover: hover) {
+  .car-slide.is-active .car-card:hover { border-color: var(--accent); }
+  .car-slide.is-active .car-card:hover .car-img { transform: scale(1.05); }
+  .car-slide.is-active .car-card:hover .car-cta-arrow { transform: translateX(4px); }
+}
+
+/* 左右箭头 */
+.car-arrow {
+  position: absolute;
+  top: 50%;
+  z-index: 6;
+  width: 50px;
+  height: 50px;
+  margin-top: -25px;
+  padding-bottom: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 26px;
+  line-height: 1;
+  font-family: inherit;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-2);
+  transition: background .16s var(--ease), transform .14s var(--ease), border-color .16s var(--ease);
+}
+.car-arrow:active { background: var(--surface-3); border-color: var(--accent-line); transform: scale(.9); }
+.car-prev { left: 2px; }
+.car-next { right: 2px; }
+
+/* 圆点指示器 */
+.car-dots { display: flex; justify-content: center; gap: 8px; padding: 12px 0 2px; }
+.car-dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--line-strong);
+  cursor: pointer;
+  transition: width .32s var(--ease), background .32s var(--ease);
+}
+.car-dot.on { width: 26px; background: var(--accent); }
+
+.home-hint {
+  padding: 14px 2px 4px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+/* ============================================================
+   观看记录（首页顶部「继续观看」）
+   数据存在浏览器 localStorage，最多 3 条，由 app.js 读写。
+   ============================================================ */
+.his-wrap { margin-bottom: 6px; }
+.section-title.his-title { margin: 4px 2px 12px; }
+.his-clear {
+  margin-left: 10px;   /* 紧跟标题，避免在大屏上飘到最右边孤零零一个 */
+  min-height: 32px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background .16s var(--ease), color .16s var(--ease);
+}
+.his-clear:active { background: var(--surface-3); color: var(--text); }
+
+/* 固定竖版小缩略图：影视海报本身是竖的，用 16:10 横框会把主体裁掉；
+   宽度按三等分算但设上限，避免大屏上变成三张巨型图把轮播挤下去 */
+.his-row { display: flex; gap: 12px; }
+/* flex:1 1 0 + max-width：窄屏三等分自适应，宽屏到 124px 就不再长大 */
+.his-card { flex: 1 1 0; min-width: 0; max-width: 108px; cursor: pointer; }
+.his-art {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: linear-gradient(150deg, var(--poster-from), var(--poster-to));
+  transition: transform .2s var(--ease), border-color .2s var(--ease), box-shadow .2s var(--ease);
+}
+.his-art img { display: block; width: 100%; height: 100%; object-fit: cover; }
+@media (hover: hover) {
+  .his-card:hover .his-art { transform: translateY(-3px); border-color: var(--accent-line); box-shadow: var(--shadow-2); }
+}
+.his-card:active .his-art { transform: scale(.97); }
+
+/* 播放按钮压在缩略图中间，明确"点这里接着看" */
+.his-play {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .22);
+  background: rgba(10, 12, 16, .58);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  pointer-events: none;
+}
+.his-tag {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  max-width: calc(100% - 16px);
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  background: rgba(10, 12, 16, .66);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.his-name {
+  margin-top: 7px;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--text-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ---------- 轮播的响应式与触屏调整 ---------- */
+@media (min-width: 720px) {
+  .carousel { --car-gap: 22px; }
+}
+@media (min-width: 1100px) {
+  .carousel { --car-gap: 26px; }
+  .car-name { font-size: 24px; }
+  .car-glyph { font-size: 92px; }
+  .his-row { gap: 16px; }
+  .his-card { max-width: 116px; }
+  .his-name { font-size: 13px; }
+}
+@media (max-width: 520px) {
+  .car-arrow { width: 42px; height: 42px; margin-top: -21px; font-size: 22px; }
+  .his-row { gap: 9px; }
+  .his-name { font-size: 12px; }
 }
