@@ -53,6 +53,8 @@ window.go = go;
 async function render() {
   const { path } = parseHash();
   const segs = path.split('/').filter(Boolean);
+  // 首页整体作为落地页：顶栏（只有返回键和站名）在首页没有意义，隐藏掉把整屏留给内容
+  document.body.classList.toggle('is-home', segs.length === 0);
   try {
     if (!segs.length) await renderHome();
     else if (segs[0] === 'browse') await renderBrowse(decodeURIComponent(segs[1]));
@@ -69,15 +71,18 @@ async function render() {
 window.addEventListener('hashchange', render);
 
 // ---------- 首页：数据源列表（仅切换用，管理在 /admin） ----------
+// 首页当作落地页来设计：顶栏隐藏，用一块 hero 承载标题，卡片做成"入口"的样式
 async function renderHome() {
-  setTitle('车载影视', '选择数据源');
+  setTitle('选择数据源', '');
   const data = await api('/api/sources');
   const list = data.list || [];
+  const total = list.length + 1; // 含 WebDAV 入口
   const sourceCards = list.length
     ? list.map((s) => `
         <div class="card source-card" onclick="enterSource('${s.id}','${esc(s.type)}')">
+          <span class="badge ${esc(s.type)}">${esc(s.type === 'applecms' ? 'AppleCMS' : s.type)}</span>
           <div class="card-title">${esc(s.name)}</div>
-          <div class="card-meta">${esc(s.type)} · ${esc(s.url)}</div>
+          <div class="card-meta">${esc(s.url)}</div>
           <div class="card-actions">
             <button class="enter" onclick="event.stopPropagation();enterSource('${s.id}','${esc(s.type)}')">进入</button>
           </div>
@@ -85,15 +90,19 @@ async function renderHome() {
     : '<div class="empty">暂无数据源<br>请管理员在「管理后台」中添加</div>';
   const webdavCard = `
     <div class="card source-card" onclick="go('/webdav')">
-      <div class="card-title">📁 WebDAV 网盘</div>
+      <span class="badge">网盘</span>
+      <div class="card-title">WebDAV 网盘</div>
       <div class="card-meta">播放网盘内 .mp4 / .strm</div>
       <div class="card-actions">
         <button class="enter" onclick="event.stopPropagation();go('/webdav')">进入</button>
       </div>
     </div>`;
   app.innerHTML = `
-    <div class="page-title">选择数据源</div>
-    <div class="card-grid">
+    <div class="home-hero">
+      <div class="home-hero-title">选择数据源</div>
+      <div class="home-hero-sub">共 ${total} 个入口 · 点卡片直接进入</div>
+    </div>
+    <div class="card-grid home-grid">
       ${sourceCards}
       ${webdavCard}
     </div>`;
