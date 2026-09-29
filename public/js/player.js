@@ -5,6 +5,15 @@
  *   - AppleCMS 点播：浏览器直连源站 HLS/MP4（不走服务端，零服务器负载）
  *   - IPTV 直播：浏览器拉取服务端 ffmpeg 转码推流的 MPEG-TS 流
  *   - 源站不支持 WebCodecs 或跨域受限时给出提示
+ *
+ * 【本版重要调整 —— 为什么默认改成「浏览器直连」】
+ * 国内影视源站普遍封禁 Cloudflare 数据中心的海外出口 IP，经 Worker 代理拉流一律 403，
+ * 连「抓取 HTML 跳转页解析真实地址」这一步也会 403 而失败。
+ * 而实测这些源站的 CDN 都返回 `access-control-allow-origin: *`，浏览器直连（用户本地网络）
+ * 完全不受影响。因此：
+ *   - AppleCMS 点播：默认浏览器直连；直连失败再回退到同源代理（适合校验 Referer 的源站）
+ *   - 跳转页解析：改在浏览器端完成（fetch 跳转页 → 正则提取真实地址 → 相对地址按页面 URL 补全）
+ *   - WebDAV 网盘：仍然必须走同源代理（NAS 一般不返回 CORS 头，且需要服务端注入 Basic Auth）
  */
 
 const playerLayer = document.getElementById('player-layer');
@@ -39,6 +48,44 @@ function proxyUrl(raw) {
   return raw;
 }
 
+// ---------- 浏览器端地址解析 ----------
+// 部分 AppleCMS 源给出的不是视频直链，而是一个 HTML 跳转页（形如 /share/xxxx），
+// 页面里用 `const url = "/20260924/xxxx/index.m3u8?sign=xxx"` 这样的相对地址指向真实播放地址。
+// 服务端解析这条路会被源站按 IP 拦掉（403），所以在浏览器端做：
+// 这些跳转页实测都返回 access-control-allow-origin: *，可以跨域 fetch。
+const DIRECT_MEDIA_RE = /\.(m3u8|mp4|flv|mkv|ts|webm|mov|mp3|aac|ogg)(\?|#|$)/i;
+
+async function resolvePlayAddress(raw) {
+  const url = String(raw || '').trim();
+  if (!url || /^(blob|data):/i.test(url)) return url;
+  if (DIRECT_MEDIA_RE.test(url)) return url;          // 已是直链，直接用
+  if (!/^https?:\/\//i.test(url)) return url;
+
+  try {
+    const res = await fetch(url, { credentials: 'omit', cache: 'no-store' });
+    if (!res.ok) return url;
+    const html = await res.text();
+    if (!html || !/<(html|!doctype)/i.test(html)) return url;
+
+    const patterns = [
+      /url\s*[:=]\s*["']([^"']*\.(?:m3u8|mp4|flv|webm|ts|mkv)[^"']*)["']/i,
+      /(?:src|href)\s*[:=]\s*["'](https?:\/\/[^"'\s]+\.(?:m3u8|mp4|flv|webm|ts|mkv)[^"'\s]*)["']/i,
+      /(https?:\/\/[^"'\s<>]+\.(?:m3u8|mp4|flv|webm|ts|mkv)[^"'\s<>]*)/i,
+    ];
+    for (const re of patterns) {
+      const m = html.match(re);
+      if (m && m[1]) {
+        const found = m[1].trim();
+        if (/^https?:\/\//i.test(found)) return found;
+        try { return new URL(found, url).toString(); } catch (_) { return found; }
+      }
+    }
+  } catch (e) {
+    /* 解析失败按原地址处理 */
+  }
+  return url;
+}
+
 async function openPlayer(ctx) {
   // 销毁可能存在的播放实例（包括 AppleCMS/IPTv 任一模式）
   if (iptvPlayer) {
@@ -46,6 +93,7 @@ async function openPlayer(ctx) {
     iptvPlayer = null;
   }
   playCtx = {
+    _preferProxy: false,   // AppleCMS 点播默认浏览器直连
     ...ctx,
     curEp: ctx.startEp || 0,
     qualityIdx: -1,
@@ -133,8 +181,10 @@ async function applyMode() {
     return;
   }
 
-  // 默认走同源流媒体代理（绕过源站防盗链/跨域）；若已触发回退则直连原始源站
-  ctx.lastUrl = ctx._fallback ? ctx.rawUrl : proxyUrl(ctx.rawUrl);
+  // 连接方式：默认按 _preferProxy 决定（AppleCMS=直连，WebDAV=代理）；
+  // 一旦 _fallback 被置位，就切换到另一种方式重试。
+  const useProxy = ctx._fallback ? !ctx._preferProxy : ctx._preferProxy;
+  ctx.lastUrl = useProxy ? proxyUrl(ctx.rawUrl) : ctx.rawUrl;
 
   if (startupTimer) { clearTimeout(startupTimer); startupTimer = null; }
   // 首帧超时提示：解码/渲染若静默失败（黑屏无报错），主动给出可能原因
@@ -151,11 +201,11 @@ async function applyMode() {
       },
       onError: (e) => {
         if (startupTimer) { clearTimeout(startupTimer); startupTimer = null; }
-        // 代理失败（如源站封锁 CF 出口 IP）→ 自动回退浏览器直连（仅一次）
+        // 当前方式失败 → 自动切换到另一种连接方式（仅一次）
         if (!ctx._fallback && !ctx._fallbackTried) {
           ctx._fallbackTried = true;
           ctx._fallback = true;
-          showToast('代理失败，正在尝试浏览器直连源站…');
+          showToast(useProxy ? '代理失败，改试浏览器直连源站…' : '直连失败，改试同源代理…');
           applyMode();
           return;
         }
@@ -196,7 +246,7 @@ async function applyMode() {
     if (!ctx._fallback && !ctx._fallbackTried) {
       ctx._fallbackTried = true;
       ctx._fallback = true;
-      showToast('代理失败，正在尝试浏览器直连源站…');
+      showToast(useProxy ? '代理失败，改试浏览器直连源站…' : '直连失败，改试同源代理…');
       applyMode();
       return;
     }
@@ -246,6 +296,7 @@ async function playCurrent(resume) {
     const epUrl = ep.url || ep.id || '';
     if (!epUrl) { showToast('未获取到播放地址'); return; }
     ctx.rawUrl = epUrl;
+    ctx._preferProxy = true;   // WebDAV 必须走同源代理：NAS 无 CORS 头，且需服务端注入 Basic Auth
     ctx._fallback = false;
     ctx._fallbackTried = false;
     ctx.lastUrl = ctx.rawUrl;
@@ -268,13 +319,17 @@ async function playCurrent(resume) {
     return;
   }
 
-  // 记录原始源站 URL（未代理包装），用于代理失败时的直连回退
-  ctx.rawUrl = res.url || ep.url || ep.id || '';
-  // 每次重新解析选集时重置回退状态，优先尝试代理
+  // 服务端解析可能因源站封 IP 而拿不到真实地址（返回的是 HTML 跳转页），
+  // 这里在浏览器端再解析一次；已经是直链的会直接返回。
+  const fromServer = res.url || ep.url || ep.id || '';
+  ctx.rawUrl = await resolvePlayAddress(fromServer);
+
+  // 每次重新解析选集时重置回退状态，优先按默认方式尝试
+  ctx._preferProxy = false;  // AppleCMS 点播默认浏览器直连
   ctx._fallback = false;
   ctx._fallbackTried = false;
   ctx.lastUrl = ctx.rawUrl;
-  ctx.urls = (res.urls && res.urls.length) ? res.urls : (res.url ? [{ label: res.label || '自动', url: res.url }] : []);
+  ctx.urls = (res.urls && res.urls.length) ? res.urls : (ctx.rawUrl ? [{ label: res.label || '自动', url: ctx.rawUrl }] : []);
   if (!ctx.urls.length) {
     showToast('未获取到播放地址');
     return;
@@ -299,8 +354,8 @@ async function cycleQuality() {
   ctx.qualityIdx = (ctx.qualityIdx + 1) % ctx.urls.length;
   const q = ctx.urls[ctx.qualityIdx];
   document.getElementById('btn-quality').textContent = q.label;
-  ctx.rawUrl = q.url;
-  ctx.lastUrl = q.url;
+  ctx.rawUrl = await resolvePlayAddress(q.url);
+  ctx.lastUrl = ctx.rawUrl;
   ctx._fallback = false;
   ctx._fallbackTried = false;
   await applyMode(); // 重建播放实例以装载新清晰度
