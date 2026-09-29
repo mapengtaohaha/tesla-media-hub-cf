@@ -30,7 +30,7 @@ export default {
     }
 
     try {
-      return await routeApi(request, url);
+      return await routeApi(request, url, env);
     } catch (e) {
       return json({ code: 0, msg: e && e.message ? e.message : '未知错误' }, 500);
     }
@@ -38,7 +38,9 @@ export default {
 };
 
 // ---------------- 路由 ----------------
-async function routeApi(request, url) {
+// env 必须由 fetch 传进来：/api/stream 需要用 env 里的 WebDAV 配置，
+// 漏传会导致 handleStream 里 { ...env } 抛 "env is not defined"，播放直接 500。
+async function routeApi(request, url, env) {
   const method = request.method;
   const p = url.pathname;
   const segs = p.split('/').filter(Boolean); // ["api","sources",":id",...]
