@@ -1,11 +1,13 @@
 /* ============================================================
    车载影视 · 界面样式
    纯 CSS 改造：不改动任何 JS 与 HTML 结构，替换本文件即可生效。
-   设计取向：深色底 / 低饱和分层表面 / 发丝描边 / 克制的单一强调色，
-            大触控目标、清晰的排版层级、轻量的入场动画。
+
+   主题：跟随系统自动切换深浅色（prefers-color-scheme）。
+         全部颜色走下面的设计令牌，浅色主题只覆盖令牌值即可整体换肤。
+         播放器内部始终维持深色，避免观影时被白底干扰。
    ============================================================ */
 
-/* ---------- 设计令牌 ---------- */
+/* ---------- 设计令牌：深色（默认）---------- */
 :root {
   color-scheme: dark;
 
@@ -14,7 +16,7 @@
   --surface-1:    #12141a;   /* 卡片 */
   --surface-2:    #1a1d24;   /* 次级块 / 输入框 */
   --surface-3:    #23272f;   /* 按钮 / hover */
-  --bar:          #0e1014;   /* 顶栏、播放器控制条 */
+  --bar:          #0e1014;   /* 顶栏 */
 
   /* 描边：用半透明白，比写死的灰蓝更耐看 */
   --line:         rgba(255, 255, 255, .07);
@@ -36,6 +38,13 @@
   --danger:       #ff6067;
   --danger-soft:  rgba(255, 96, 103, .14);
 
+  /* 海报占位 / 无图区域 */
+  --poster-from:  #1c2027;
+  --poster-to:    #101318;
+
+  /* 滚动条滑块 */
+  --scroll-thumb: rgba(255, 255, 255, .14);
+
   --radius-sm:  9px;
   --radius:     14px;
   --radius-lg:  18px;
@@ -44,6 +53,44 @@
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .5);
   --shadow-2: 0 10px 28px -8px rgba(0, 0, 0, .7);
   --ease: cubic-bezier(.2, .7, .3, 1);
+}
+
+/* ---------- 设计令牌：浅色（系统为浅色时自动启用）---------- */
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+
+    --bg:           #f4f6f9;
+    --surface-1:    #ffffff;
+    --surface-2:    #eef1f6;
+    --surface-3:    #e2e7ef;
+    --bar:          #ffffff;
+
+    --line:         rgba(16, 24, 40, .09);
+    --line-strong:  rgba(16, 24, 40, .18);
+
+    --text:         #14181f;
+    --text-2:       #4e5766;
+    --text-3:       #7c8593;
+
+    --accent:       #1f6feb;   /* 浅色底上压深一档，保证对比度 */
+    --accent-ink:   #ffffff;
+    --accent-soft:  rgba(31, 111, 235, .10);
+    --accent-line:  rgba(31, 111, 235, .32);
+    --accent-2:     #b45309;
+    --accent-2-soft: rgba(180, 83, 9, .10);
+    --accent-2-line: rgba(180, 83, 9, .30);
+    --danger:       #d1242f;
+    --danger-soft:  rgba(209, 36, 47, .10);
+
+    --poster-from:  #e8ecf2;
+    --poster-to:    #dde3ec;
+
+    --scroll-thumb: rgba(16, 24, 40, .18);
+
+    --shadow-1: 0 1px 2px rgba(16, 24, 40, .06);
+    --shadow-2: 0 10px 28px -8px rgba(16, 24, 40, .20);
+  }
 }
 
 /* ---------- 基础 ---------- */
@@ -174,6 +221,13 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   gap: 14px;
 }
 
+/* 数据源列表：用更宽的大卡片，一屏 3~4 张，信息读起来不挤
+   （:has() 在 Chromium 105+ / Safari 15.4+ 可用；不支持时自动退回上面的默认网格） */
+.card-grid:has(> .source-card) {
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
 .card {
   position: relative;
   background: var(--surface-1);
@@ -199,9 +253,9 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   position: relative;
   aspect-ratio: 3 / 4;
   overflow: hidden;
-  background: linear-gradient(165deg, #1c2027, #101318);
+  background: linear-gradient(165deg, var(--poster-from), var(--poster-to));
 }
-/* 无海报时的占位：淡描边的胶片图标 */
+/* 无海报时的占位：用 mask 上色，深浅主题都能自动跟随 */
 .vod-card .poster::before {
   content: '';
   position: absolute;
@@ -209,8 +263,10 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   margin: auto;
   width: 34px;
   height: 34px;
-  opacity: .16;
-  background: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='1.6' stroke-linecap='round'%3E%3Crect x='3' y='4' width='18' height='16' rx='2.5'/%3E%3Cpath d='M8 4v16M16 4v16'/%3E%3C/svg%3E") center / contain no-repeat;
+  background-color: var(--text);
+  opacity: .18;
+  -webkit-mask: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round'%3E%3Crect x='3' y='4' width='18' height='16' rx='2.5'/%3E%3Cpath d='M8 4v16M16 4v16'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.6' stroke-linecap='round'%3E%3Crect x='3' y='4' width='18' height='16' rx='2.5'/%3E%3Cpath d='M8 4v16M16 4v16'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 .vod-card .poster img {
   position: relative;
@@ -224,7 +280,7 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 @media (hover: hover) {
   .vod-card:hover .poster img { transform: scale(1.05); }
 }
-/* 角标做成悬浮胶囊，比整条渐变更精致 */
+/* 角标做成悬浮胶囊，比整条渐变更精致（压在图片上，所以两种主题都用深色底） */
 .vod-card .poster .remarks {
   position: absolute;
   z-index: 2;
@@ -259,18 +315,37 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   letter-spacing: -.005em;
 }
 
-/* 源 / 站点卡片 */
+/* ---------- 数据源 / 站点卡片 ---------- */
 .source-card {
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  min-height: 104px;
-  padding: 16px;
+  gap: 8px;
+  min-height: 140px;
+  padding: 18px 18px 16px 22px;
 }
-.card-title {
-  font-size: 17px;
+/* 左侧一道强调色导轨，让卡片有"入口"的感觉 */
+.source-card::before {
+  content: '';
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+  opacity: .75;
+  transition: opacity .18s var(--ease);
+}
+@media (hover: hover) {
+  .source-card:hover::before { opacity: 1; }
+}
+
+.source-card .card-title {
+  font-size: 18px;
   font-weight: 700;
   letter-spacing: -.01em;
+  line-height: 1.3;
+  padding-right: 4px;
 }
 .card-meta {
   font-size: 12.5px;
@@ -296,14 +371,14 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 .badge.tvbox  { background: var(--accent-soft);   color: var(--accent);   border-color: var(--accent-line); }
 .badge.applecms { background: var(--accent-soft); color: var(--accent);   border-color: var(--accent-line); }
 
-.card-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 4px; }
+.card-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 6px; }
 .card-actions button {
   flex: 1;
-  min-height: 42px;
+  min-height: 44px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   font-size: 14.5px;
-  font-weight: 500;
+  font-weight: 600;
   font-family: inherit;
   cursor: pointer;
   color: var(--text);
@@ -448,7 +523,7 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid var(--line);
-  background: linear-gradient(165deg, #1c2027, #101318);
+  background: linear-gradient(165deg, var(--poster-from), var(--poster-to));
 }
 .detail-head .poster img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
@@ -514,7 +589,10 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   color: var(--accent-ink);
 }
 
-/* ---------- 播放器层 ---------- */
+/* ============================================================
+   播放器层：以下颜色刻意写死为深色，不跟随浅色主题
+   （观影时任何白底都会刺眼；画面本身来自 canvas，与控制条无关）
+   ============================================================ */
 .player-layer {
   position: fixed;
   inset: 0;
@@ -599,9 +677,9 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 }
 .quality-btn:active { transform: scale(.95); }
 .quality-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-ink);
+  background: #4d9dff;
+  border-color: #4d9dff;
+  color: #07131f;
 }
 
 #player-box { flex: 1; min-height: 0; min-width: 0; position: relative; background: #000; }
@@ -634,8 +712,8 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   gap: 8px;
   overflow-x: auto;
   padding: 11px 14px;
-  background: var(--bar);
-  border-top: 1px solid var(--line);
+  background: #0e1014;
+  border-top: 1px solid rgba(255, 255, 255, .07);
   scrollbar-width: none;
 }
 .ep-strip::-webkit-scrollbar { display: none; }
@@ -644,10 +722,10 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   min-width: 68px;
   min-height: 40px;
   padding: 0 15px;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(255, 255, 255, .07);
   border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--text-2);
+  background: #1a1d24;
+  color: #a6adbb;
   font-size: 13.5px;
   font-weight: 500;
   font-family: inherit;
@@ -656,9 +734,9 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 }
 .ep-strip .ep-mini:active { transform: scale(.95); }
 .ep-strip .ep-mini.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-ink);
+  background: #4d9dff;
+  border-color: #4d9dff;
+  color: #07131f;
   font-weight: 700;
 }
 
@@ -671,7 +749,7 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgba(4, 5, 8, .72);
+  background: rgba(6, 8, 12, .62);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
 }
@@ -688,7 +766,7 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   padding: 22px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-lg);
-  background: #14171d;
+  background: var(--surface-1);
   box-shadow: var(--shadow-2);
   animation: popIn .22s var(--ease) both;
 }
@@ -714,6 +792,8 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 .modal-body .tip { font-size: 13px; line-height: 1.65; color: var(--text-3); }
 .modal-actions { display: flex; gap: 10px; margin-top: 6px; }
 .modal-actions .btn { flex: 1; }
+/* 模态框里的卡片列表：跟数据源列表一样，留足呼吸感 */
+.modal-body .card.source-card { min-height: 0; padding: 14px 16px; }
 
 /* ---------- Toast ---------- */
 .toast {
@@ -725,7 +805,7 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   padding: 12px 22px;
   border: 1px solid var(--line-strong);
   border-radius: 999px;
-  background: rgba(24, 27, 34, .92);
+  background: var(--surface-3);
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
   color: var(--text);
@@ -759,7 +839,7 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   width: 24px;
   height: 24px;
   margin: 0 auto 14px;
-  border: 2px solid rgba(255, 255, 255, .13);
+  border: 2px solid var(--line);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin .72s linear infinite;
@@ -823,24 +903,21 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 #app::-webkit-scrollbar-thumb, .modal-body::-webkit-scrollbar-thumb, .detail-desc::-webkit-scrollbar-thumb {
   border: 3px solid transparent;
   border-radius: 999px;
-  background: rgba(255, 255, 255, .12);
+  background: var(--scroll-thumb);
   background-clip: content-box;
 }
-#app::-webkit-scrollbar-thumb:hover, .modal-body::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .22); background-clip: content-box; }
 
 /* ---------- 动效 ---------- */
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes riseIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes popIn { from { opacity: 0; transform: scale(.97) translateY(6px); } to { opacity: 1; transform: none; } }
 
-/* 页面内容入场：子元素依次淡入，间隔很短，不拖沓 */
 #app > * { animation: riseIn .3s var(--ease) both; }
 #app > *:nth-child(2) { animation-delay: .04s; }
 #app > *:nth-child(3) { animation-delay: .08s; }
 #app > *:nth-child(4) { animation-delay: .12s; }
 #app > *:nth-child(5) { animation-delay: .16s; }
 
-/* 卡片网格逐张淡入（最多 12 张，够覆盖首屏） */
 .card-grid > .card { animation: riseIn .34s var(--ease) both; }
 .card-grid > .card:nth-child(1) { animation-delay: .02s; }
 .card-grid > .card:nth-child(2) { animation-delay: .04s; }
@@ -867,6 +944,7 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 @media (min-width: 1100px) {
   #app { padding: 22px 26px 40px; }
   .card-grid { grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 20px; }
+  .card-grid:has(> .source-card) { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px; }
   .page-title { font-size: 22px; }
   #page-title { font-size: 19px; }
   .detail-head .poster { width: 164px; }
