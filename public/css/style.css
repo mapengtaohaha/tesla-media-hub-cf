@@ -227,6 +227,11 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 16px;
 }
+/* 首页专用网格：app.js 在首页给 grid 加了 .home-grid，比 :has() 更稳，作为兼容兜底 */
+.home-grid {
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
 
 .card {
   position: relative;
@@ -315,37 +320,105 @@ body { display: flex; flex-direction: column; overflow: hidden; }
   letter-spacing: -.005em;
 }
 
-/* ---------- 数据源 / 站点卡片 ---------- */
+/* ============================================================
+   首页落地页
+   app.js 在首页给 body 加了 .is-home：隐藏顶栏（它只有返回键和站名，
+   首页用不上），把整屏留给内容，让首页更像一个独立的应用入口页。
+   ============================================================ */
+/* 用「直接子元素」选择器，避免影响到嵌在其它容器里的顶栏 */
+body.is-home > #topbar { display: none; }
+
+.home-hero {
+  padding: 8px 2px 22px;
+}
+#app > .home-hero { animation: heroIn .52s var(--ease) both; }
+
+.home-hero-title {
+  position: relative;
+  display: inline-block;
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: -.025em;
+}
+/* 标题上方一小段强调色短横，作为视觉锚点 */
+.home-hero-title::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: -11px;
+  width: 30px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.home-hero-sub {
+  margin-top: 10px;
+  font-size: 13.5px;
+  color: var(--text-3);
+}
+
+@keyframes heroIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- 数据源 / 站点卡片（首页入口卡）---------- */
 .source-card {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 140px;
+  min-height: 148px;
   padding: 18px 18px 16px 22px;
+  transition: transform .26s var(--ease), box-shadow .26s var(--ease),
+              border-color .26s var(--ease), background .18s var(--ease);
 }
-/* 左侧一道强调色导轨，让卡片有"入口"的感觉 */
+/* 左侧一道强调色导轨，悬停时向上下延伸，强化"这是一个入口"的感觉 */
 .source-card::before {
   content: '';
   position: absolute;
-  top: 14px;
-  bottom: 14px;
+  top: 16px;
+  bottom: 16px;
   left: 0;
   width: 3px;
   border-radius: 0 3px 3px 0;
   background: var(--accent);
-  opacity: .75;
-  transition: opacity .18s var(--ease);
+  opacity: .7;
+  transition: top .26s var(--ease), bottom .26s var(--ease), opacity .2s var(--ease);
 }
 @media (hover: hover) {
-  .source-card:hover::before { opacity: 1; }
+  .source-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--accent-line);
+  }
+  .source-card:hover::before { top: 8px; bottom: 8px; opacity: 1; }
+}
+/* 按下时向外扩散一圈光晕，给触屏一个明确的反馈 */
+.source-card:active { animation: tapPulse .5s var(--ease); }
+@keyframes tapPulse {
+  from { box-shadow: 0 0 0 0 var(--accent-soft); }
+  to { box-shadow: 0 0 0 14px transparent; }
 }
 
+.source-card .badge { margin-bottom: 2px; }
 .source-card .card-title {
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -.01em;
   line-height: 1.3;
-  padding-right: 4px;
+}
+.source-card .card-actions { padding-top: 8px; }
+
+/* 「进入」按钮尾部的箭头，悬停时轻微右移 */
+.card-actions button.enter::after {
+  content: '›';
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 1.2em;
+  line-height: 1;
+  transition: transform .24s var(--ease);
+}
+@media (hover: hover) {
+  .source-card:hover .card-actions button.enter::after { transform: translateX(4px); }
 }
 .card-meta {
   font-size: 12.5px;
@@ -909,28 +982,30 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 
 /* ---------- 动效 ---------- */
 @keyframes spin { to { transform: rotate(360deg); } }
-@keyframes riseIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes riseIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 @keyframes popIn { from { opacity: 0; transform: scale(.97) translateY(6px); } to { opacity: 1; transform: none; } }
+/* 卡片入场：上浮 + 轻微放大，比单纯淡入更有"落位"的手感 */
+@keyframes cardIn { from { opacity: 0; transform: translateY(18px) scale(.965); } to { opacity: 1; transform: none; } }
 
-#app > * { animation: riseIn .3s var(--ease) both; }
-#app > *:nth-child(2) { animation-delay: .04s; }
-#app > *:nth-child(3) { animation-delay: .08s; }
-#app > *:nth-child(4) { animation-delay: .12s; }
-#app > *:nth-child(5) { animation-delay: .16s; }
+#app > * { animation: riseIn .32s var(--ease) both; }
+#app > *:nth-child(2) { animation-delay: .05s; }
+#app > *:nth-child(3) { animation-delay: .1s; }
+#app > *:nth-child(4) { animation-delay: .15s; }
+#app > *:nth-child(5) { animation-delay: .2s; }
 
-.card-grid > .card { animation: riseIn .34s var(--ease) both; }
-.card-grid > .card:nth-child(1) { animation-delay: .02s; }
-.card-grid > .card:nth-child(2) { animation-delay: .04s; }
-.card-grid > .card:nth-child(3) { animation-delay: .06s; }
-.card-grid > .card:nth-child(4) { animation-delay: .08s; }
-.card-grid > .card:nth-child(5) { animation-delay: .10s; }
-.card-grid > .card:nth-child(6) { animation-delay: .12s; }
-.card-grid > .card:nth-child(7) { animation-delay: .14s; }
-.card-grid > .card:nth-child(8) { animation-delay: .16s; }
-.card-grid > .card:nth-child(9) { animation-delay: .18s; }
-.card-grid > .card:nth-child(10) { animation-delay: .20s; }
-.card-grid > .card:nth-child(11) { animation-delay: .22s; }
-.card-grid > .card:nth-child(n+12) { animation-delay: .24s; }
+.card-grid > .card { animation: cardIn .46s var(--ease) both; }
+.card-grid > .card:nth-child(1) { animation-delay: .04s; }
+.card-grid > .card:nth-child(2) { animation-delay: .09s; }
+.card-grid > .card:nth-child(3) { animation-delay: .14s; }
+.card-grid > .card:nth-child(4) { animation-delay: .19s; }
+.card-grid > .card:nth-child(5) { animation-delay: .24s; }
+.card-grid > .card:nth-child(6) { animation-delay: .29s; }
+.card-grid > .card:nth-child(7) { animation-delay: .34s; }
+.card-grid > .card:nth-child(8) { animation-delay: .39s; }
+.card-grid > .card:nth-child(9) { animation-delay: .44s; }
+.card-grid > .card:nth-child(10) { animation-delay: .49s; }
+.card-grid > .card:nth-child(11) { animation-delay: .54s; }
+.card-grid > .card:nth-child(n+12) { animation-delay: .59s; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -944,9 +1019,14 @@ body { display: flex; flex-direction: column; overflow: hidden; }
 @media (min-width: 1100px) {
   #app { padding: 22px 26px 40px; }
   .card-grid { grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 20px; }
-  .card-grid:has(> .source-card) { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px; }
+  .card-grid:has(> .source-card),
+  .home-grid { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px; }
   .page-title { font-size: 22px; }
   #page-title { font-size: 19px; }
+  .home-hero { padding: 10px 2px 26px; }
+  .home-hero-title { font-size: 30px; }
+  .source-card { min-height: 160px; padding: 20px 20px 18px 24px; }
+  .source-card .card-title { font-size: 19px; }
   .detail-head .poster { width: 164px; }
   .detail-info .d-title { font-size: 24px; }
   .ep-grid { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 12px; }
