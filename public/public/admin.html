@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#0f1115">
+  <title>管理后台 · 车载影视</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- 登录页 -->
+  <div id="login-view" class="login-view">
+    <div class="login-box">
+      <h2>管理后台</h2>
+      <input id="login-user" placeholder="管理员账号">
+      <input id="login-pass" type="password" placeholder="密码">
+      <button class="btn primary block" onclick="doLogin()">登 录</button>
+      <div class="tip" style="text-align:center">仅限管理员访问</div>
+      <a href="/" class="back-link">← 返回首页</a>
+    </div>
+  </div>
+
+  <!-- 管理主界面 -->
+  <div id="admin-view" class="hidden">
+    <header id="topbar">
+      <a class="btn-back" href="/">‹</a>
+      <div class="title-wrap">
+        <span id="page-title">管理后台</span>
+        <span class="page-sub">数据源管理</span>
+      </div>
+      <button class="btn-icon" onclick="showAccountForm()" title="账号设置">账</button>
+      <button class="btn-icon" onclick="logout()" title="退出登录">退</button>
+    </header>
+    <main id="app">
+      <div class="page-title">数据源列表</div>
+      <div class="card-grid" id="source-list"></div>
+      <button class="btn primary block" onclick="showAddSource()">＋ 添加数据源</button>
+      <div class="section-title">WebDAV 网盘</div>
+      <div class="card" id="webdav-card">
+        <div class="card-title">WebDAV 网盘配置</div>
+        <div class="card-meta" id="webdav-status">加载中…</div>
+        <div class="card-actions">
+          <button class="btn primary" onclick="openWebdavForm()">配置 WebDAV</button>
+        </div>
+      </div>
+      <div class="section-title">说明</div>
+      <div class="detail-desc">
+        源由管理员统一维护，普通用户首页仅可选择源与站点观看。<br><br>
+        仅支持 <b>AppleCMS 影视源</b>：站点采集接口地址，形如 <code>https://域名/api.php/provide/vod/</code>，用于点播电影/电视剧。<br>
+        注意：Cloudflare 版已移除 IPTV / ffmpeg，<b>不支持 IPTV 直播源</b>，请不要添加。
+      </div>
+    </main>
+  </div>
+
+  <div id="modal" class="modal hidden"></div>
+  <div id="toast" class="toast"></div>
+
+  <script src="js/api.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>
