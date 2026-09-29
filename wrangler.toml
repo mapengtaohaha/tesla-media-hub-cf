@@ -3,7 +3,7 @@ main = "src/index.js"
 compatibility_date = "2025-05-01"
 
 # Cloudflare 账号 ID（来自 CF 后台右上角「账户 ID」，或 `npx wrangler whoami`）
-account_id = "8b493efbb872f843f709cb16f0c8effc"
+
 
 # 静态资源（前端 public/）由 Cloudflare 静态资产直接托管，无需 /api 的请求会回退到这里
 [assets]
@@ -17,7 +17,7 @@ not_found_handling = "single-page-application"
 # （Workers & Pages → KV → 点你的命名空间 → 详情页的 ID，形如 32 位十六进制）
 [[kv_namespaces]]
 binding = "TMH_KV"
-id = "b1110a2727c141beac7835a7930b338d"
+id = "a52c52508b7f4f1b8bba18dc9e842159"
 
 [vars]
 # 首次部署的默认管理员账号（部署后仍可在管理后台网页修改，修改后写入 KV 覆盖此处）
