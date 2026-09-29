@@ -78,6 +78,7 @@ window.addEventListener('hashchange', render);
 // ============================================================
 const COVER_DIR = 'covers/';
 const COVER_EXTS = ['jpg', 'jpeg', 'png', 'webp'];
+const COVER_PROBE_MAX = 12;   // 走命名约定时最多探测到第几张
 let coverPool = null;   // 封面清单（只加载一次）
 let coverPick = null;   // 本次随机分配结果（同一页面内保持不变，刷新才重挑）
 
@@ -95,6 +96,12 @@ async function coverExists(url) {
   } catch (_) { return false; }
 }
 
+/**
+ * 读取封面清单。两级策略：
+ *   ① covers/manifest.json —— 一次请求拿全（推荐，也是最快路径）
+ *   ② 没有清单时才按 cover-1/2/3… 命名约定探测
+ * 这个函数**不参与首屏渲染**，调用方拿到结果后再把图贴上去。
+ */
 async function loadCovers() {
   if (coverPool) return coverPool;
   const found = [];
@@ -108,15 +115,24 @@ async function loadCovers() {
       arr.forEach((s) => found.push(/^(https?:)?\/\//.test(s) ? s : COVER_DIR + s.replace(/^\/+/, '')));
     }
   } catch (_) { /* 没有清单就走命名约定 */ }
-  if (!found.length) {
-    for (let i = 1; i <= 30; i++) {
-      let hit = '';
-      for (const e of COVER_EXTS) {
-        if (await coverExists(`${COVER_DIR}cover-${i}.${e}`)) { hit = `${COVER_DIR}cover-${i}.${e}`; break; }
-      }
-      if (!hit) break;
-      found.push(hit);
+  if (found.length) { coverPool = found; return found; }
+
+  // 命名约定兜底：所有候选**并行**探测。
+  // 之前是串行 for-await，6 张图要等 19 个来回（3 个扩展名 × 6 张 + 收尾 1 次），
+  // 首页会被硬生生拖慢好几秒 —— 这是实测出来的数字，别改回串行。
+  const tasks = [];
+  for (let i = 1; i <= COVER_PROBE_MAX; i++) {
+    for (const e of COVER_EXTS) {
+      const url = `${COVER_DIR}cover-${i}.${e}`;
+      tasks.push(coverExists(url).then((ok) => (ok ? { i: i, url: url } : null)));
     }
+  }
+  const hits = await Promise.all(tasks);
+  const byIndex = {};
+  hits.forEach((h) => { if (h && !byIndex[h.i]) byIndex[h.i] = h.url; });
+  for (let i = 1; i <= COVER_PROBE_MAX; i++) {
+    if (!byIndex[i]) break;        // 命名必须从 1 开始连续
+    found.push(byIndex[i]);
   }
   coverPool = found;
   return found;
@@ -141,7 +157,7 @@ function assignCovers(pool, n) {
 function carSlideHtml(e, cover, k) {
   const glyph = `<div class="car-glyph">${esc((e.name || '?').slice(0, 1))}</div>`;
   const img = cover
-    ? `<img class="car-img" src="${esc(cover)}" alt="" loading="lazy" onerror="this.remove()">`
+    ? `<img class="car-img" src="${esc(cover)}" alt="" loading="lazy" onload="this.classList.add('is-loaded')" onerror="this.remove()">`
     : '';
   return `
     <div class="car-slide" data-k="${k}">
@@ -174,10 +190,11 @@ async function renderHome() {
     }));
   entries.push({ kind: 'dav', id: '__webdav__', name: 'WebDAV 网盘', meta: '播放网盘内 .mp4 / .strm', badge: '网盘' });
 
-  const pool = await loadCovers();
-  if (!coverPick || coverPick.length !== entries.length) coverPick = assignCovers(pool, entries.length);
   CAR.entries = entries;
   CAR.n = entries.length;
+  // 首屏不等封面：先用「CSS 兜底画面」立刻渲染，封面图到了再贴上去（见 applyCovers）。
+  // 之前这里是 `await loadCovers()`，等于把首屏卡在网络请求上 —— 首页变慢就是它。
+  if (!coverPick || coverPick.length !== entries.length) coverPick = assignCovers(coverPool || [], entries.length);
 
   // 同一个列表渲染三份，滑动到边缘时无动画跳回中间一份，实现"无限循环"
   let slides = '';
@@ -211,6 +228,52 @@ async function renderHome() {
     <div class="home-hint">点中间那张卡片进入 · 两侧轻点可居中</div>`;
 
   carInit();
+  applyCovers();
+
+  // 封面清单只在本次访问里拉一次；拉回来后再把图贴到已经渲染好的卡片上
+  if (!coverPool) {
+    loadCovers().then((pool) => {
+      coverPool = pool;
+      if (!document.getElementById('car-track')) return;   // 已经离开首页了
+      coverPick = assignCovers(pool, entries.length);
+      applyCovers();
+    }).catch(() => { /* 封面拿不到就用兜底画面，不影响使用 */ });
+  }
+}
+
+/**
+ * 把封面图贴到已经渲染好的卡片上。
+ * 因为首屏是先渲染兜底画面、不等网络，图片必须单独补。这个函数同时负责三件事：
+ *   · 卡片上还没有 img 就建一个（插在压暗层之前）
+ *   · 有 img 但地址不对就换地址
+ *   · 图片已进入缓存（complete）但 onload 没触发时，补上显示状态，避免一直不可见
+ */
+function applyCovers() {
+  const track = document.getElementById('car-track');
+  if (!track || !CAR.n) return;
+  for (let i = 0; i < track.children.length; i++) {
+    const slide = track.children[i];
+    const card = slide.firstElementChild;
+    if (!card) continue;
+    const url = (coverPick && coverPick[Number(slide.dataset.k) % CAR.n]) || '';
+    let img = card.querySelector('.car-img');
+    if (!url) {
+      if (img) img.remove();
+      continue;
+    }
+    if (!img) {
+      img = document.createElement('img');
+      img.className = 'car-img';
+      img.alt = '';
+      img.loading = 'lazy';
+      img.onload = function () { this.classList.add('is-loaded'); };
+      img.onerror = function () { this.remove(); };
+      const scrim = card.querySelector('.car-scrim');
+      card.insertBefore(img, scrim);
+    }
+    if (img.getAttribute('src') !== url) img.setAttribute('src', url);
+    if (img.complete && img.naturalWidth > 0) img.classList.add('is-loaded');
+  }
 }
 
 // ============================================================

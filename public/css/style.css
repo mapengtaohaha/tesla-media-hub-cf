@@ -1107,12 +1107,12 @@ body.is-home .home-hint { margin-bottom: auto; }
   inset: 0;
   z-index: 5;
   border-radius: inherit;
-  background: rgba(6, 8, 12, .46);
+  background: rgba(6, 8, 12, .34);
   opacity: 1;
   pointer-events: none;
   transition: opacity .52s var(--ease);
 }
-.car-slide.is-near .car-card::after { opacity: .22; }
+.car-slide.is-near .car-card::after { opacity: .14; }
 .car-slide.is-active .car-card::after { opacity: 0; }
 
 /* 叠加顺序：渐变底 → 首字水印 → 真实封面图 → 压暗层 → 文案 */
@@ -1193,8 +1193,10 @@ body.is-home .home-hint { margin-bottom: auto; }
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform .5s var(--ease);
+  opacity: 0;                    /* 图到了再淡入：首屏先用兜底画面顶着，避免空白或突兀弹出 */
+  transition: opacity .5s var(--ease), transform .5s var(--ease);
 }
+.car-img.is-loaded { opacity: 1; }
 
 .car-scrim {
   position: absolute;
